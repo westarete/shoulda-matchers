@@ -76,20 +76,31 @@ module Shoulda # :nodoc:
           @macro = macro
           @name = name
           @options = {}
+          @submatchers = []
+          @missing = ''
         end
 
         def through(through)
-          @options[:through] = through
+          through_matcher = AssociationMatchers::ThroughMatcher.new(through, name)
+          add_submatcher(through_matcher)
           self
         end
 
         def dependent(dependent)
-          @options[:dependent] = dependent
+          dependent_matcher = AssociationMatchers::DependentMatcher.new(dependent, name)
+          add_submatcher(dependent_matcher)
           self
         end
 
         def order(order)
-          @options[:order] = order
+          order_matcher = AssociationMatchers::OrderMatcher.new(order, name)
+          add_submatcher(order_matcher)
+          self
+        end
+
+        def counter_cache(counter_cache = true)
+          counter_cache_matcher = AssociationMatchers::CounterCacheMatcher.new(counter_cache, name)
+          add_submatcher(counter_cache_matcher)
           self
         end
 
@@ -118,51 +129,83 @@ module Shoulda # :nodoc:
           self
         end
 
-        def matches?(subject)
-          @subject = subject
-          association_exists? &&
-            macro_correct? &&
-            foreign_key_exists? &&
-            through_association_valid? &&
-            dependent_correct? &&
-            class_name_correct? &&
-            order_correct? &&
-            conditions_correct? &&
-            join_table_exists? &&
-            validate_correct? &&
-            touch_correct?
+        def description
+          description = "#{macro_description} #{name}"
+          description += " class_name => #{options[:class_name]}" if options.key?(:class_name)
+          [description, submatchers.map(&:description)].flatten.join(' ')
         end
 
         def failure_message_for_should
-          "Expected #{expectation} (#{@missing})"
+          "Expected #{expectation} (#{missing_options})"
         end
 
         def failure_message_for_should_not
           "Did not expect #{expectation}"
         end
 
-        def description
-          description = "#{macro_description} #{@name}"
-          description += " through #{@options[:through]}"          if @options.key?(:through)
-          description += " dependent => #{@options[:dependent]}"   if @options.key?(:dependent)
-          description += " class_name => #{@options[:class_name]}" if @options.key?(:class_name)
-          description += " order => #{@options[:order]}"           if @options.key?(:order)
-          description
+        def matches?(subject)
+          @subject = subject
+          association_exists? &&
+            macro_correct? &&
+            foreign_key_exists? &&
+            class_name_correct? &&
+            conditions_correct? &&
+            join_table_exists? &&
+            validate_correct? &&
+            touch_correct? &&
+            submatchers_match?
         end
 
-        protected
+        private
+
+        attr_reader :submatchers, :missing, :subject, :macro, :name, :options
+
+        def add_submatcher(matcher)
+          @submatchers << matcher
+        end
+
+        def macro_description
+          case macro.to_s
+          when 'belongs_to'
+            'belong to'
+          when 'has_many'
+            'have many'
+          when 'has_one'
+            'have one'
+          when 'has_and_belongs_to_many'
+            'have and belong to many'
+          end
+        end
+
+        def expectation
+          "#{model_class.name} to have a #{macro} association called #{name}"
+        end
+
+        def missing_options
+          [missing, failing_submatchers.map(&:missing_option)].flatten.join
+        end
+
+        def failing_submatchers
+          @failing_submatchers ||= submatchers.select do |matcher|
+            !matcher.matches?(subject)
+          end
+        end
 
         def association_exists?
           if reflection.nil?
-            @missing = "no association called #{@name}"
+            @missing = "no association called #{name}"
             false
           else
             true
           end
         end
 
+        def reflection
+          @reflection ||= model_class.reflect_on_association(name)
+        end
+
         def macro_correct?
-          if reflection.macro == @macro
+          if reflection.macro == macro
             true
           else
             @missing = "actual association type was #{reflection.macro}"
@@ -175,83 +218,46 @@ module Shoulda # :nodoc:
         end
 
         def belongs_foreign_key_missing?
-          @macro == :belongs_to && !class_has_foreign_key?(model_class)
+          macro == :belongs_to && !class_has_foreign_key?(model_class)
+        end
+
+        def model_class
+          subject.class
         end
 
         def has_foreign_key_missing?
-          [:has_many, :has_one].include?(@macro) &&
+          [:has_many, :has_one].include?(macro) &&
             !through? &&
             !class_has_foreign_key?(associated_class)
         end
 
-        def through_association_valid?
-          @options[:through].nil? || (through_association_exists? && through_association_correct?)
+        def through?
+          reflection.options[:through]
         end
 
-        def through_association_exists?
-          if through_reflection.nil?
-            @missing = "#{model_class.name} does not have any relationship to #{@options[:through]}"
-            false
-          else
-            true
-          end
-        end
-
-        def through_association_correct?
-          if @options[:through] == reflection.options[:through]
-            true
-          else
-            @missing = "Expected #{model_class.name} to have #{@name} through #{@options[:through]}, " +
-              "but got it through #{reflection.options[:through]}"
-            false
-          end
-        end
-
-        def dependent_correct?
-          if @options[:dependent].nil? || @options[:dependent].to_s == reflection.options[:dependent].to_s
-            true
-          else
-            @missing = "#{@name} should have #{@options[:dependent]} dependency"
-            false
-          end
+        def associated_class
+          reflection.klass
         end
 
         def class_name_correct?
-          if @options.key?(:class_name)
-            if @options[:class_name].to_s == reflection.klass.to_s
+          if options.key?(:class_name)
+            if options[:class_name].to_s == reflection.klass.to_s
               true
             else
-              @missing = "#{@name} should resolve to #{@options[:class_name]} for class_name"
+              @missing = "#{name} should resolve to #{options[:class_name]} for class_name"
               false
             end
           else
             true
           end
-        end
-
-        def order_correct?
-          if @options.key?(:order)
-            if @options[:order].to_s == association_order.to_s
-              true
-            else
-              @missing = "#{@name} should be ordered by #{association_order}"
-              false
-            end
-          else
-            true
-          end
-        end
-
-        def association_order
-          Shoulda::Matchers::RailsShim.association_order(reflection)
         end
 
         def conditions_correct?
-          if @options.key?(:conditions)
-            if @options[:conditions].to_s == association_conditions.to_s
+          if options.key?(:conditions)
+            if options[:conditions].to_s == reflection.options[:conditions].to_s
               true
             else
-              @missing = "#{@name} should have the following conditions: #{association_conditions}"
+              @missing = "#{name} should have the following conditions: #{options[:conditions]}"
               false
             end
           else
@@ -259,12 +265,8 @@ module Shoulda # :nodoc:
           end
         end
 
-        def association_conditions
-          Shoulda::Matchers::RailsShim.association_conditions(reflection)
-        end
-
         def join_table_exists?
-          if @macro != :has_and_belongs_to_many ||
+          if macro != :has_and_belongs_to_many ||
               model_class.connection.tables.include?(join_table)
             true
           else
@@ -277,7 +279,7 @@ module Shoulda # :nodoc:
           if option_correct?(:validate)
             true
           else
-            @missing = "#{@name} should have :validate => #{@options[:validate]}"
+            @missing = "#{name} should have :validate => #{options[:validate]}"
             false
           end
         end
@@ -286,22 +288,22 @@ module Shoulda # :nodoc:
           if option_correct?(:touch)
             true
           else
-            @missing = "#{@name} should have :touch => #{@options[:touch]}"
+            @missing = "#{name} should have :touch => #{options[:touch]}"
             false
           end
         end
 
         def option_correct?(key)
-          !@options.key?(key) || reflection_set_properly_for?(key)
+          !options.key?(key) || reflection_set_properly_for?(key)
         end
 
         def reflection_set_properly_for?(key)
-          @options[key] == !!reflection.options[key]
+          options[key] == !!reflection.options[key]
         end
 
         def class_has_foreign_key?(klass)
-          if @options.key?(:foreign_key)
-            reflection.options[:foreign_key] == @options[:foreign_key]
+          if options.key?(:foreign_key)
+            reflection.options[:foreign_key] == options[:foreign_key]
           else
             if klass.column_names.include?(foreign_key)
               true
@@ -312,20 +314,12 @@ module Shoulda # :nodoc:
           end
         end
 
-        def model_class
-          @subject.class
-        end
-
         def join_table
           if reflection.respond_to? :join_table
             reflection.join_table.to_s
           else
             reflection.options[:join_table].to_s
           end
-        end
-
-        def associated_class
-          reflection.klass
         end
 
         def foreign_key
@@ -338,41 +332,16 @@ module Shoulda # :nodoc:
           end
         end
 
-        def through?
-          reflection.options[:through]
-        end
-
-        def reflection
-          @reflection ||= model_class.reflect_on_association(@name)
-        end
-
         def foreign_key_reflection
-          if [:has_one, :has_many].include?(@macro) && reflection.options.include?(:inverse_of)
+          if [:has_one, :has_many].include?(macro) && reflection.options.include?(:inverse_of)
             associated_class.reflect_on_association(reflection.options[:inverse_of])
           else
             reflection
           end
         end
 
-        def through_reflection
-          @through_reflection ||= model_class.reflect_on_association(@options[:through])
-        end
-
-        def expectation
-          "#{model_class.name} to have a #{@macro} association called #{@name}"
-        end
-
-        def macro_description
-          case @macro.to_s
-          when 'belongs_to'
-            'belong to'
-          when 'has_many'
-            'have many'
-          when 'has_one'
-            'have one'
-          when 'has_and_belongs_to_many'
-            'have and belong to many'
-          end
+        def submatchers_match?
+          failing_submatchers.empty?
         end
       end
     end

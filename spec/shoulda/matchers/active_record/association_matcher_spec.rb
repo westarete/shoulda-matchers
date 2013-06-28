@@ -46,6 +46,25 @@ describe Shoulda::Matchers::ActiveRecord::AssociationMatcher do
       belonging_to_parent.should_not belong_to(:parent).dependent(:destroy)
     end
 
+    it 'accepts an association with a valid :counter_cache option' do
+      belonging_to_parent(:counter_cache => :attribute_count).
+        should belong_to(:parent).counter_cache(:attribute_count)
+    end
+
+    it 'defaults :counter_cache to true' do
+      belonging_to_parent(:counter_cache => true).
+        should belong_to(:parent).counter_cache
+    end
+
+    it 'rejects an association with a bad :counter_cache option' do
+      belonging_to_parent(:counter_cache => :attribute_count).
+        should_not belong_to(:parent).counter_cache(true)
+    end
+
+    it 'rejects an association that has no :counter_cache option' do
+      belonging_to_parent.should_not belong_to(:parent).counter_cache
+    end
+
     it 'accepts an association with a valid :conditions option' do
       define_model :parent, :adopter => :boolean
       define_model :child, :parent_id => :integer do
@@ -256,7 +275,11 @@ describe Shoulda::Matchers::ActiveRecord::AssociationMatcher do
     end
 
     it 'rejects an association with a bad :dependent option' do
-      having_many_children.should_not have_many(:children).dependent(:destroy)
+      matcher = have_many(:children).dependent(:destroy)
+
+      having_many_children.should_not matcher
+
+      matcher.failure_message_for_should.should =~ /children should have destroy dependency/
     end
 
     it 'accepts an association with a valid :order option' do
@@ -265,7 +288,11 @@ describe Shoulda::Matchers::ActiveRecord::AssociationMatcher do
     end
 
     it 'rejects an association with a bad :order option' do
-      having_many_children.should_not have_many(:children).order(:id)
+      matcher = have_many(:children).order(:id)
+
+      having_many_children.should_not matcher
+
+      matcher.failure_message_for_should.should =~ /children should be ordered by id/
     end
 
     it 'accepts an association with a valid :conditions option' do
@@ -401,7 +428,11 @@ describe Shoulda::Matchers::ActiveRecord::AssociationMatcher do
     end
 
     it 'rejects an association with a bad :dependent option' do
-      having_one_detail.should_not have_one(:detail).dependent(:destroy)
+      matcher = have_one(:detail).dependent(:destroy)
+
+      having_one_detail.should_not matcher
+
+      matcher.failure_message_for_should.should =~ /detail should have destroy dependency/
     end
 
     it 'accepts an association with a valid :order option' do
@@ -409,7 +440,11 @@ describe Shoulda::Matchers::ActiveRecord::AssociationMatcher do
     end
 
     it 'rejects an association with a bad :order option' do
-      having_one_detail.should_not have_one(:detail).order(:id)
+      matcher = have_one(:detail).order(:id)
+
+      having_one_detail.should_not matcher
+
+      matcher.failure_message_for_should.should =~ /detail should be ordered by id/
     end
 
     it 'accepts an association with a valid :conditions option' do

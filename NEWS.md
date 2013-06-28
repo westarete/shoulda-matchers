@@ -1,6 +1,25 @@
 # HEAD
 
+* Add a `counter_cache` submatcher for `belongs_to` associations
+
+* Add a rescue_from matcher for Rails controllers which checks that the correct
+  ActiveSupport call has been made and that the handlers exist without actually
+  throwing an exception.
+
+* Changed the scope of AssociationMatcher methods from protected to private.
+
+* Extracted `#order`, `#through`, and `#dependent` from AssociationMatcher as
+their own submatchers.
+
+# v 2.2.0
+
 * Fix `have_and_belong_to_many` matcher issue for Rails 4.
+
+* Fix `validate_uniqueness_of.scoped_to` issue when the scoped field is already
+  taken (#207).
+
+* Add comparison submatchers to `validate_numericality_of` to correspond to the
+  comparison options you can give to `validates_numericality_of` (#244).
 
 # v 2.1.0
 
